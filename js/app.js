@@ -265,7 +265,9 @@ const dlgTerm = $('#dlg-term');
 function editTerm(t) {
   const f = $('#term-form');
   f.name.value = t?.name || ''; f.name.readOnly = !!t?.builtin;
-  f.cat.value = t?.cat || '自訂'; f.brief.value = t?.brief || ''; f.body.value = t?.body || '';
+  const cat = t?.cat || '自訂';
+  if (![...f.cat.options].some((o) => o.value === cat)) f.cat.add(new Option(cat, cat)); // 舊資料裡的其他分類也能選到
+  f.cat.value = cat; f.brief.value = t?.brief || ''; f.body.value = t?.body || '';
   dlgTerm.returnValue = '';
   dlgTerm.onclose = async () => {
     if (dlgTerm.returnValue !== 'ok') return;
@@ -377,20 +379,54 @@ const pad = (n) => String(n).padStart(2, '0');
 const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* 無痕模式等情況略過 */ } };
 
+/* 章節目錄存在私人資料庫（meta / chapters），下拉選單才會對應到課程單元；
+   讀不到時只剩「其他」可手動輸入。 */
+const OTHER = '__other';
+let chapterGroups = null; // [{ch, title, units:[{no,name}]}]
+async function loadChapters() {
+  if (chapterGroups) return chapterGroups;
+  const item = await Store.get('meta', 'chapters').catch(() => null);
+  chapterGroups = (item && item.list) || [];
+  return chapterGroups;
+}
+const unitValue = (g, u) => `${g.ch}-${u.no.split('-')[1]} ${u.name}`; // 例：Ch 03-02 紫微星
+function buildChapterSelect(selected) {
+  const sel = quickForm.chapterSel;
+  const groups = chapterGroups || [];
+  sel.innerHTML = '<option value="">（請選擇章節）</option>' +
+    groups.map((g) => `<optgroup label="${esc(g.ch + ' ' + g.title)}">` +
+      g.units.map((u) => { const v = unitValue(g, u); return `<option value="${esc(v)}" data-group="${esc(g.ch + ' ' + g.title)}">${esc(u.no + ' ' + u.name)}</option>`; }).join('') +
+      '</optgroup>').join('') +
+    `<option value="${OTHER}">其他／自行輸入…</option>`;
+  const known = [...sel.options].some((o) => o.value === selected && o.value);
+  if (known) { sel.value = selected; quickForm.chapter.hidden = true; quickForm.chapter.value = ''; }
+  else if (selected || !groups.length) { sel.value = OTHER; quickForm.chapter.hidden = false; quickForm.chapter.value = selected || ''; }
+  else { sel.value = ''; quickForm.chapter.hidden = true; }
+}
+quickForm.chapterSel.addEventListener('change', () => {
+  const other = quickForm.chapterSel.value === OTHER;
+  quickForm.chapter.hidden = !other;
+  if (other) quickForm.chapter.focus();
+});
+const currentChapter = () => (quickForm.chapterSel.value === OTHER ? quickForm.chapter.value.trim() : quickForm.chapterSel.value);
+
 async function openQuick() {
+  await loadChapters();
   const recent = lsGet('zw-chapters', []);
-  quickForm.chapter.value = (await Store.get('meta', 'progress').catch(() => null))?.chapter || recent[0] || '';
+  const last = (await Store.get('meta', 'progress').catch(() => null))?.chapter || recent[0] || '';
+  buildChapterSelect(last);
   quickForm.text.value = lsGet('zw-draft', '');
-  $('#chapter-options').innerHTML = recent.map((c) => `<option value="${esc(c)}">`).join('');
   dlgQuick.returnValue = '';
   dlgQuick.showModal();
   quickForm.text.focus();
 }
 dlgQuick.addEventListener('input', () => lsSet('zw-draft', quickForm.text.value)); // 草稿自動保留，不怕誤關
-dlgQuick.addEventListener('close', async () => {
-  if (dlgQuick.returnValue !== 'ok') return;
+// 按下儲存的當下就先把欄位內容取走（不等視窗關閉事件），避免連續記錄時內容被下一次覆蓋
+quickForm.addEventListener('submit', async (e) => {
+  if (!e.submitter || e.submitter.value !== 'ok') return;
   const text = quickForm.text.value.trim();
-  const chapter = quickForm.chapter.value.trim() || '未分類';
+  const chapter = currentChapter() || '未分類';
+  const group = quickForm.chapterSel.selectedOptions[0]?.dataset.group;
   if (!text) return;
   const now = new Date();
   const day = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
@@ -400,7 +436,7 @@ dlgQuick.addEventListener('close', async () => {
     const exist = (await Store.list('notes')).find((n) => n.title === title);
     await Store.save('notes', exist
       ? { ...exist, body: exist.body + '\n\n' + line }
-      : { title, tags: `上課, ${chapter}`, body: line });
+      : { title, tags: ['上課', group, chapter].filter(Boolean).join(', '), body: line });
     await Store.save('meta', { id: 'progress', chapter });
     lsSet('zw-chapters', [chapter, ...lsGet('zw-chapters', []).filter((c) => c !== chapter)].slice(0, 20));
     lsSet('zw-draft', '');
@@ -431,6 +467,29 @@ $('#login-form').addEventListener('submit', async (e) => {
   $('#login-msg').textContent = '登入中…';
   try { await Store.signIn(f.email.value.trim(), f.password.value); f.password.value = ''; startApp(); }
   catch (err) { $('#login-msg').textContent = err.message; }
+});
+const dlgPassword = $('#dlg-password');
+const passwordForm = $('#password-form');
+$('#btn-password').addEventListener('click', () => {
+  $('.menu').open = false;
+  passwordForm.reset();
+  $('#password-msg').textContent = '';
+  dlgPassword.showModal();
+});
+$('#btn-password-cancel').addEventListener('click', () => dlgPassword.close());
+passwordForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = passwordForm;
+  const msg = $('#password-msg');
+  if (f.next.value !== f.again.value) { msg.textContent = '兩次輸入的新密碼不一致'; return; }
+  if (f.next.value === f.current.value) { msg.textContent = '新密碼不能與目前的密碼相同'; return; }
+  msg.textContent = '更新中…';
+  try {
+    await Store.changePassword(f.current.value, f.next.value);
+    f.reset();
+    dlgPassword.close();
+    toast('密碼已更新');
+  } catch (err) { msg.textContent = err.message; }
 });
 $('#btn-logout').addEventListener('click', async () => { await Store.signOut(); cur.chart = null; location.hash = ''; location.reload(); });
 

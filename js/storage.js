@@ -39,6 +39,16 @@ const Store = (function () {
       if (error) throw new Error(error.message === 'Invalid login credentials' ? '帳號或密碼不正確' : error.message);
     },
     signOut: () => client().auth.signOut(),
+    /** 修改密碼：先用舊密碼重新驗證，再更新，避免手機被他人拿到時直接改密碼 */
+    async changePassword(current, next) {
+      const { data } = await client().auth.getSession();
+      const email = data.session && data.session.user.email;
+      if (!email) throw new Error('尚未登入');
+      const re = await client().auth.signInWithPassword({ email, password: current });
+      if (re.error) throw new Error('目前的密碼不正確');
+      const up = await client().auth.updateUser({ password: next });
+      if (up.error) throw new Error(up.error.message);
+    },
     onAuth: (fn) => client().auth.onAuthStateChange((_e, s) => fn(s)),
 
     /* ---- 資料 ---- */

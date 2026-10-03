@@ -29,6 +29,7 @@
     <div class="menu-body">
       <button id="btn-export" class="ghost">匯出備份</button>
       <label class="ghost btn">匯入備份<input id="file-import" type="file" accept=".json" hidden></label>
+      <button id="btn-password" class="ghost">修改密碼</button>
       <button id="btn-logout" class="ghost">登出</button>
     </div>
   </details>
@@ -151,14 +152,30 @@
   </section>
 </main>
 
+<!-- 修改密碼 -->
+<dialog id="dlg-password">
+  <form id="password-form">
+    <h3>修改密碼</h3>
+    <input name="username" type="email" autocomplete="username" hidden>
+    <label class="block">目前的密碼<input name="current" type="password" autocomplete="current-password" required></label>
+    <label class="block">新密碼（至少 8 個字元）<input name="next" type="password" autocomplete="new-password" minlength="8" required></label>
+    <label class="block">再輸入一次新密碼<input name="again" type="password" autocomplete="new-password" minlength="8" required></label>
+    <p id="password-msg" class="err"></p>
+    <div class="actions">
+      <button type="submit" class="primary">更新密碼</button>
+      <button type="button" id="btn-password-cancel" class="ghost">取消</button>
+    </div>
+  </form>
+</dialog>
+
 <!-- 快速筆記 -->
 <dialog id="dlg-quick">
   <form method="dialog" id="quick-form">
     <h3>快速記一筆</h3>
     <label class="block">目前章節／單元
-      <input name="chapter" list="chapter-options" placeholder="例：Ch 03-02 天府星" autocomplete="off">
+      <select name="chapterSel"></select>
     </label>
-    <datalist id="chapter-options"></datalist>
+    <input name="chapter" class="block" placeholder="自行輸入章節或主題" autocomplete="off" hidden>
     <label class="block">筆記
       <textarea name="text" rows="6" placeholder="上課重點、老師說的口訣、想驗證的事…"></textarea>
     </label>
@@ -192,8 +209,12 @@
   <form method="dialog" id="term-form">
     <h3>自訂術語</h3>
     <label class="block">名稱<input name="name" required></label>
-    <label class="block">分類<input name="cat" value="自訂" list="cat-options"></label>
-    <datalist id="cat-options"><option>觀念</option><option>主星</option><option>輔星</option><option>煞星</option><option>雜曜</option><option>四化</option><option>宮位</option><option>自訂</option></datalist>
+    <label class="block">分類
+      <select name="cat">
+        <option>觀念</option><option>主星</option><option>輔星</option><option>煞星</option>
+        <option>雜曜</option><option>四化</option><option>宮位</option><option>自訂</option>
+      </select>
+    </label>
     <label class="block">一句話重點<input name="brief"></label>
     <label class="block">詳細說明<textarea name="body" rows="5"></textarea></label>
     <div class="actions">
