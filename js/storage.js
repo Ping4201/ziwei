@@ -1,0 +1,101 @@
+/* 資料存取層：Supabase（登入 + 雲端資料庫 + 講義檔案儲存）。
+   對外介面維持 list / get / save / remove，畫面程式不需要知道資料存在哪裡。
+   所有資料都在 zw_items 表（kind = cases / notes / terms / docs / meta），
+   講義 PDF 存在私有 bucket「zw-handouts」，路徑為 <user_id>/<doc_id>。 */
+const Store = (function () {
+  const BUCKET = 'zw-handouts';
+  let sb = null;
+  let uid = null;
+
+  function client() {
+    if (sb) return sb;
+    if (typeof supabase === 'undefined') throw new Error('無法載入登入元件，請檢查網路連線後重新整理');
+    sb = supabase.createClient(CONFIG.url, CONFIG.key, { auth: { persistSession: true, autoRefreshToken: true } });
+    sb.auth.onAuthStateChange((_e, s) => { uid = s ? s.user.id : null; });
+    return sb;
+  }
+  const uidNow = async () => {
+    if (uid) return uid;
+    const { data } = await client().auth.getSession();
+    uid = data.session ? data.session.user.id : null;
+    if (!uid) throw new Error('尚未登入');
+    return uid;
+  };
+  const uniq = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const toItem = (r) => ({ ...r.data, id: r.id, updated: r.updated });
+  const check = ({ error }) => { if (error) throw new Error(error.message); };
+
+  return {
+    uid: uniq,
+
+    /* ---- 登入 ---- */
+    async session() {
+      const { data } = await client().auth.getSession();
+      uid = data.session ? data.session.user.id : null;
+      return data.session;
+    },
+    async signIn(email, password) {
+      const { error } = await client().auth.signInWithPassword({ email, password });
+      if (error) throw new Error(error.message === 'Invalid login credentials' ? '帳號或密碼不正確' : error.message);
+    },
+    signOut: () => client().auth.signOut(),
+    onAuth: (fn) => client().auth.onAuthStateChange((_e, s) => fn(s)),
+
+    /* ---- 資料 ---- */
+    async list(kind) {
+      const r = await client().from('zw_items').select('id,data,updated').eq('kind', kind).order('updated', { ascending: false });
+      check(r);
+      return r.data.map(toItem);
+    },
+    async get(kind, id) {
+      const r = await client().from('zw_items').select('id,data,updated').eq('kind', kind).eq('id', id).maybeSingle();
+      check(r);
+      return r.data ? toItem(r.data) : null;
+    },
+    async save(kind, item) {
+      const user = await uidNow();
+      if (!item.id) item.id = uniq();
+      item.updated = Date.now();
+      const { id, updated, blob, ...rest } = item;
+      if (kind === 'docs' && blob) {
+        const path = `${user}/${id}`;
+        check(await client().storage.from(BUCKET).upload(path, blob, { upsert: true, contentType: 'application/pdf' }));
+        rest.path = path;
+      }
+      check(await client().from('zw_items').upsert({ user_id: user, kind, id, data: rest, updated }, { onConflict: 'user_id,kind,id' }));
+      return item;
+    },
+    async remove(kind, id) {
+      const user = await uidNow();
+      if (kind === 'docs') await client().storage.from(BUCKET).remove([`${user}/${id}`]);
+      check(await client().from('zw_items').delete().eq('kind', kind).eq('id', id));
+    },
+    /** 取得講義 PDF 檔案內容 */
+    async docBlob(id) {
+      const user = await uidNow();
+      const r = await client().storage.from(BUCKET).download(`${user}/${id}`);
+      check(r);
+      return r.data;
+    },
+
+    /** 匯出文字資料（講義 PDF 檔本身不含） */
+    async exportAll() {
+      const out = { app: 'ziwei-notes', version: 2, exported: new Date().toISOString() };
+      for (const k of ['cases', 'notes', 'terms', 'docs', 'meta']) out[k] = await this.list(k);
+      return out;
+    },
+    async importAll(data) {
+      if (!data || data.app !== 'ziwei-notes') throw new Error('這不是本工具匯出的備份檔');
+      let n = 0;
+      const user = await uidNow();
+      for (const k of ['cases', 'notes', 'terms']) {
+        const rows = (data[k] || []).map(({ id, updated, ...rest }) => ({ user_id: user, kind: k, id, data: rest, updated: updated || Date.now() }));
+        if (rows.length) {
+          check(await client().from('zw_items').upsert(rows, { onConflict: 'user_id,kind,id' }));
+          n += rows.length;
+        }
+      }
+      return n;
+    },
+  };
+})();

@@ -1,0 +1,443 @@
+/* 畫面與互動 */
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtDate = (t) => new Date(t).toLocaleDateString('zh-TW');
+// 第 13 項「晚子」= 23:00–24:00，排盤時視為次日的子時
+const HOURS = ['早子 00–01', '丑 01–03', '寅 03–05', '卯 05–07', '辰 07–09', '巳 09–11', '午 11–13', '未 13–15', '申 15–17', '酉 17–19', '戌 19–21', '亥 21–23', '晚子 23–24'];
+const hourLabel = (s) => (s.late ? '晚子' : HOURS[s.h].split(' ')[0]);
+const hourOption = (s) => (s.late ? 12 : s.h);
+// 地支 index → [row, col]
+const POS = { 5: [1, 1], 6: [1, 2], 7: [1, 3], 8: [1, 4], 9: [2, 4], 10: [3, 4], 11: [4, 4], 0: [4, 3], 1: [4, 2], 2: [4, 1], 3: [3, 1], 4: [2, 1] };
+const SHA = ['擎羊', '陀羅', '火星', '鈴星', '地空', '地劫'];
+
+let toastTimer;
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+/* ---------- 分頁 ---------- */
+const loaders = {};
+function showTab(name) {
+  $$('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === name));
+  $$('.panel').forEach((p) => (p.hidden = p.id !== 'tab-' + name));
+  if (loaders[name]) Promise.resolve(loaders[name]()).catch((e) => toast(e.message));
+  location.hash = name;
+}
+$('#tabs').addEventListener('click', (e) => e.target.dataset.tab && showTab(e.target.dataset.tab));
+
+/* ---------- 排盤 ---------- */
+const cur = { chart: null, caseId: null };
+const form = $('#chart-form');
+form.hour.innerHTML = HOURS.map((h, i) => `<option value="${i}">${h}</option>`).join('');
+
+form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const [y, m, d] = form.date.value.split('-').map(Number);
+  const hv = Number(form.hour.value);
+  try {
+    cur.chart = Ziwei.buildChart({
+      name: form.name.value.trim(), gender: form.gender.value, y, m, d,
+      hourBranch: hv === 12 ? 0 : hv, lateZi: hv === 12, leapRule: form.leap.value,
+    });
+  } catch (err) {
+    return toast(err.message);
+  }
+  cur.caseId = null;
+  $('#case-verdict').value = '未驗證';
+  $('#case-note').value = '';
+  $('#case-status').textContent = '';
+  renderChart();
+});
+
+function starHtml(s, borrowed) {
+  const main = Ziwei.MAIN_STARS.includes(s.n);
+  const cls = (main ? 'star' : 'star minor' + (SHA.includes(s.n) ? ' sha' : '')) + (borrowed ? ' borrow' : '');
+  const hua = s.h ? `<span class="hua hua-${s.h}">${s.h}</span>` : '';
+  return `<span class="${cls}" data-star="${esc(s.n)}">${esc(s.n)}${hua}</span>`;
+}
+
+function renderChart() {
+  const c = cur.chart;
+  $('#chart-wrap').hidden = false;
+  const l = c.lunar;
+  const lunarText = `${l.year}年${l.leap ? '閏' : ''}${l.month}月${l.day}日`;
+  const ming = c.palaces.find((p) => p.name === '命宮');
+  $('#chart-summary').innerHTML =
+    `<span><b>${esc(c.name || '（未命名）')}</b> ${c.gender === 'M' ? '男' : '女'}</span>` +
+    `<span>國曆 ${c.solar.y}-${c.solar.m}-${c.solar.d} ${hourLabel(c.solar)}時${c.solar.late ? '（視為次日）' : ''}</span>` +
+    `<span>農曆 ${lunarText}</span><span>${c.yearGanzhi}年</span>`;
+
+  const cells = c.palaces.map((p, b) => {
+    const [r, col] = POS[b];
+    // 空宮（沒有主星）：整套借對宮的星，本宮原有的星仍保留
+    const empty = !p.stars.some((s) => Ziwei.MAIN_STARS.includes(s.n));
+    const borrowed = empty ? c.palaces[(b + 6) % 12].stars : [];
+    const borrowHtml = borrowed.length ? `<span class="borrow-tag">借對宮</span>${borrowed.map((s) => starHtml(s, true)).join('')}` : '';
+    return `<div class="cell${p.name === '命宮' ? ' ming' : ''}" data-b="${b}" style="grid-row:${r};grid-column:${col}">
+      ${p.note ? '<i class="note-dot" title="有備註"></i>' : ''}
+      <div class="stars">${p.stars.map((s) => starHtml(s)).join('')}${borrowHtml}</div>
+      <div class="foot"><div class="pn"><span class="pname">${p.name}${p.isShen ? '·身' : ''}</span><span class="gz">${p.stem}${p.branch}</span></div><div class="dx">${p.daxian[0]}–${p.daxian[1]}</div></div>
+    </div>`;
+  });
+  const center = `<div class="center" style="grid-row:2/4;grid-column:2/4">
+    <div class="big">${esc(c.name || '命盤')}</div>
+    <div>${c.gender === 'M' ? '男' : '女'}　${c.juName}</div>
+    <div class="muted">命主 ${c.mingZhu}　身主 ${c.shenZhu}</div>
+    <div class="sihua">${c.sihua.map((x) => `<span class="hua hua-${x.slice(-1)}">${x}</span>`).join('')}</div>
+  </div>`;
+  $('#chart-grid').innerHTML = cells.join('') + center;
+}
+
+$('#chart-grid').addEventListener('click', (e) => {
+  const star = e.target.closest('[data-star]');
+  if (star) return showStarInfo(star.dataset.star);
+  const cell = e.target.closest('.cell');
+  if (cell) editPalace(Number(cell.dataset.b));
+});
+
+async function lookupTerm(name) {
+  return (await getAllTerms()).find((t) => t.name === name);
+}
+async function showStarInfo(name) {
+  const t = await lookupTerm(name);
+  const box = $('#star-info');
+  box.hidden = false;
+  box.innerHTML = t
+    ? `<h3>${esc(t.name)} <span class="tag">${esc(t.cat)}</span></h3><div class="muted">${esc(t.brief)}</div><p>${esc(t.body)}</p>`
+    : `<h3>${esc(name)}</h3><p class="muted">速查裡還沒有這個術語，可到「速查」頁新增。</p>`;
+}
+
+const dlgPalace = $('#dlg-palace');
+function starsToText(stars) {
+  return stars.map((s) => s.n + (s.h ? '化' + s.h : '')).join('、');
+}
+function textToStars(text) {
+  return text.split(/[,，、\s]+/).filter(Boolean).map((t) => {
+    const m = t.match(/^(.+?)化([祿權科忌])$/);
+    return m ? { n: m[1], h: m[2] } : { n: t, h: '' };
+  });
+}
+function editPalace(b) {
+  const p = cur.chart.palaces[b];
+  $('#palace-title').textContent = `${p.name}（${p.stem}${p.branch}）`;
+  const f = $('#palace-form');
+  f.stars.value = starsToText(p.stars);
+  f.note.value = p.note || '';
+  dlgPalace.returnValue = '';
+  dlgPalace.onclose = () => {
+    if (dlgPalace.returnValue !== 'ok') return;
+    p.stars = textToStars(f.stars.value);
+    p.note = f.note.value.trim();
+    renderChart();
+  };
+  dlgPalace.showModal();
+}
+
+$('#btn-save-case').addEventListener('click', async () => {
+  if (!cur.chart) return;
+  const item = {
+    id: cur.caseId || undefined,
+    chart: cur.chart,
+    verdict: $('#case-verdict').value,
+    note: $('#case-note').value,
+  };
+  const saved = await Store.save('cases', item);
+  cur.caseId = saved.id;
+  $('#case-status').textContent = '已儲存 ' + new Date().toLocaleTimeString('zh-TW');
+  toast('案例已儲存');
+});
+
+/* ---------- 案例 ---------- */
+async function renderCases() {
+  const q = $('#case-search').value.trim().toLowerCase();
+  const all = (await Store.list('cases')).filter((c) =>
+    !q || (c.chart.name + c.note + c.verdict).toLowerCase().includes(q));
+  $('#case-list').innerHTML = all.length ? all.map((c) => {
+    const ch = c.chart;
+    const mp = ch.palaces.find((p) => p.name === '命宮');
+    const main = mp.stars.filter((s) => Ziwei.MAIN_STARS.includes(s.n)).map((s) => s.n).join('') || '命無主星';
+    return `<div class="item" data-id="${c.id}">
+      <div><div class="t">${esc(ch.name || '（未命名）')} <span class="tag">${esc(c.verdict)}</span></div>
+      <div class="s">${ch.solar.y}-${ch.solar.m}-${ch.solar.d}｜${ch.juName}｜命宮 ${esc(main)}｜${fmtDate(c.updated)}</div>
+      <div class="s">${esc((c.note || '').slice(0, 60))}</div></div>
+      <button class="danger" data-del="${c.id}">刪除</button></div>`;
+  }).join('') : '<p class="muted">還沒有案例。到「排盤」排好盤後按「儲存為案例」。</p>';
+}
+loaders.cases = renderCases;
+$('#case-search').addEventListener('input', renderCases);
+$('#case-list').addEventListener('click', async (e) => {
+  const del = e.target.dataset.del;
+  if (del) {
+    if (confirm('確定刪除這個案例？')) { await Store.remove('cases', del); renderCases(); }
+    return;
+  }
+  const item = e.target.closest('.item');
+  if (!item) return;
+  const c = await Store.get('cases', item.dataset.id);
+  cur.chart = c.chart; cur.caseId = c.id;
+  form.name.value = c.chart.name; form.gender.value = c.chart.gender;
+  form.date.value = `${c.chart.solar.y}-${String(c.chart.solar.m).padStart(2, '0')}-${String(c.chart.solar.d).padStart(2, '0')}`;
+  form.hour.value = hourOption(c.chart.solar);
+  $('#case-verdict').value = c.verdict; $('#case-note').value = c.note || '';
+  $('#case-status').textContent = '';
+  showTab('chart');
+  renderChart();
+});
+
+/* ---------- 筆記 ---------- */
+const noteForm = $('#note-form');
+let noteId = null;
+async function renderNotes() {
+  const q = $('#note-search').value.trim().toLowerCase();
+  const all = (await Store.list('notes')).filter((n) => !q || (n.title + n.tags + n.body).toLowerCase().includes(q));
+  $('#note-list').innerHTML = all.length ? all.map((n) => `
+    <div class="item${n.id === noteId ? ' on' : ''}" data-id="${n.id}"><div>
+      <div class="t">${esc(n.title)}</div>
+      <div class="s">${(n.tags || '').split(/[,，]/).filter(Boolean).map((t) => `<span class="tag">${esc(t.trim())}</span>`).join('')}${fmtDate(n.updated)}</div>
+    </div></div>`).join('') : '<p class="muted">沒有符合的筆記。</p>';
+}
+loaders.notes = renderNotes;
+$('#note-search').addEventListener('input', renderNotes);
+function openNote(n) {
+  noteId = n ? n.id : null;
+  noteForm.hidden = false;
+  noteForm.title.value = n ? n.title : '';
+  noteForm.tags.value = n ? n.tags : '';
+  noteForm.body.value = n ? n.body : '';
+  renderNotes();
+}
+$('#btn-new-note').addEventListener('click', () => openNote(null));
+$('#note-list').addEventListener('click', async (e) => {
+  const item = e.target.closest('.item');
+  if (item) openNote(await Store.get('notes', item.dataset.id));
+});
+noteForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const saved = await Store.save('notes', { id: noteId || undefined, title: noteForm.title.value.trim(), tags: noteForm.tags.value.trim(), body: noteForm.body.value });
+  noteId = saved.id;
+  renderNotes();
+  toast('筆記已儲存');
+});
+$('#btn-del-note').addEventListener('click', async () => {
+  if (!noteId || !confirm('確定刪除這篇筆記？')) return;
+  await Store.remove('notes', noteId);
+  noteId = null; noteForm.hidden = true; renderNotes();
+});
+
+/* ---------- 速查 ---------- */
+let termCat = '全部';
+/** 內建條目 + 你的修改（override）+ 自訂條目。修改只存在你的私人資料庫，不會進 GitHub。 */
+async function getAllTerms() {
+  const saved = await Store.list('terms');
+  const ov = new Map(saved.filter((t) => t.override).map((t) => [t.name, t]));
+  const builtin = BUILTIN_TERMS.map((t) => {
+    const o = ov.get(t.name);
+    return o ? { ...t, cat: o.cat, brief: o.brief, body: o.body, edited: true, ovId: o.id, builtin: true } : { ...t, builtin: true };
+  });
+  const custom = saved.filter((t) => !t.override).map((t) => ({ ...t, custom: true }));
+  return builtin.concat(custom);
+}
+async function renderTerms() {
+  const all = await getAllTerms();
+  const cats = ['全部', ...new Set(all.map((t) => t.cat))];
+  $('#term-cats').innerHTML = cats.map((c) => `<button class="chip${c === termCat ? ' on' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('');
+  const q = $('#term-search').value.trim().toLowerCase();
+  const rows = all.filter((t) => (termCat === '全部' || t.cat === termCat) && (!q || (t.name + t.brief + t.body).toLowerCase().includes(q)));
+  $('#term-list').innerHTML = rows.map((t) => {
+    const key = esc(t.custom ? t.id : t.name);
+    const btns = `<button class="ghost" data-edit="${key}">編輯</button>` +
+      (t.custom ? `<button class="ghost" data-del="${key}">刪除</button>` : '') +
+      (t.edited ? `<button class="ghost" data-reset="${key}">還原內建</button>` : '');
+    return `<div class="term"><h3>${esc(t.name)} <span class="tag">${esc(t.cat)}</span>${t.edited ? '<span class="tag mine">我改過</span>' : ''}</h3>
+      <div class="b">${esc(t.brief)}</div><p>${esc(t.body)}</p>
+      <div class="actions mt">${btns}</div></div>`;
+  }).join('') || '<p class="muted">找不到，試試新增自訂術語。</p>';
+}
+loaders.terms = renderTerms;
+$('#term-search').addEventListener('input', renderTerms);
+$('#term-cats').addEventListener('click', (e) => { if (e.target.dataset.cat) { termCat = e.target.dataset.cat; renderTerms(); } });
+const dlgTerm = $('#dlg-term');
+function editTerm(t) {
+  const f = $('#term-form');
+  f.name.value = t?.name || ''; f.name.readOnly = !!t?.builtin;
+  f.cat.value = t?.cat || '自訂'; f.brief.value = t?.brief || ''; f.body.value = t?.body || '';
+  dlgTerm.returnValue = '';
+  dlgTerm.onclose = async () => {
+    if (dlgTerm.returnValue !== 'ok') return;
+    const item = { name: f.name.value.trim(), cat: f.cat.value.trim() || '自訂', brief: f.brief.value.trim(), body: f.body.value.trim() };
+    if (t?.builtin) Object.assign(item, { id: t.ovId || 'ov-' + item.name, override: true });
+    else item.id = t?.id;
+    await Store.save('terms', item);
+    renderTerms(); toast('已儲存');
+  };
+  dlgTerm.showModal();
+}
+$('#btn-new-term').addEventListener('click', () => editTerm(null));
+$('#term-list').addEventListener('click', async (e) => {
+  const { edit, del, reset } = e.target.dataset;
+  if (!edit && !del && !reset) return;
+  const all = await getAllTerms();
+  const byKey = (k) => all.find((t) => (t.custom ? t.id : t.name) === k);
+  if (edit) editTerm(byKey(edit));
+  if (del && confirm('確定刪除這個術語？')) { await Store.remove('terms', del); renderTerms(); }
+  if (reset && confirm('還原成內建內容？你的修改會被刪除。')) { await Store.remove('terms', byKey(reset).ovId); renderTerms(); }
+});
+
+/* ---------- 講義 ---------- */
+let viewUrl;
+async function renderDocs() {
+  const q = $('#doc-search').value.trim().toLowerCase();
+  const all = (await Store.list('docs')).filter((d) => !q || (d.title + (d.tags || '')).toLowerCase().includes(q));
+  $('#doc-list').innerHTML = all.length ? all.map((d) => `
+    <div class="item" data-id="${d.id}"><div>
+      <div class="t">${esc(d.title)}</div>
+      <div class="s">${(d.tags || '').split(/[,，]/).filter(Boolean).map((t) => `<span class="tag">${esc(t.trim())}</span>`).join('')}${(d.size / 1048576).toFixed(1)} MB｜${fmtDate(d.updated)}</div></div>
+      <span><button class="ghost" data-tag="${d.id}">標籤</button> <button class="danger" data-del="${d.id}">刪除</button></span></div>`).join('')
+    : '<p class="muted">還沒有講義，請從上方上傳 PDF。</p>';
+}
+loaders.docs = renderDocs;
+$('#doc-search').addEventListener('input', renderDocs);
+$('#file-pdf').addEventListener('change', async (e) => {
+  for (const f of e.target.files) {
+    if (f.size > 50 * 1048576) { toast(`「${f.name}」超過 50MB（免費方案單檔上限），請先壓縮或拆檔`); continue; }
+    toast(`上傳中：${f.name}…`);
+    try { await Store.save('docs', { title: f.name.replace(/\.pdf$/i, ''), tags: '', size: f.size, blob: f }); toast('已上傳'); }
+    catch (err) { toast('上傳失敗：' + err.message); }
+  }
+  e.target.value = '';
+  renderDocs();
+});
+$('#doc-list').addEventListener('click', async (e) => {
+  const { del, tag } = e.target.dataset;
+  if (del) {
+    if (confirm('確定刪除這份講義？')) { await Store.remove('docs', del); $('#doc-viewer').hidden = true; renderDocs(); }
+    return;
+  }
+  if (tag) {
+    const d = await Store.get('docs', tag);
+    const t = prompt('標籤（用逗號分隔）', d.tags || '');
+    if (t !== null) { d.tags = t; await Store.save('docs', d); renderDocs(); }
+    return;
+  }
+  const item = e.target.closest('.item');
+  if (!item) return;
+  const d = await Store.get('docs', item.dataset.id);
+  if (viewUrl) URL.revokeObjectURL(viewUrl);
+  toast('載入講義中…');
+  viewUrl = URL.createObjectURL(await Store.docBlob(d.id));
+  $('#doc-title').textContent = d.title;
+  $('#doc-frame').src = viewUrl; $('#doc-open').href = viewUrl;
+  $('#doc-viewer').hidden = false;
+  $('#doc-viewer').scrollIntoView({ behavior: 'smooth' });
+});
+$('#btn-close-doc').addEventListener('click', () => { $('#doc-viewer').hidden = true; $('#doc-frame').src = 'about:blank'; });
+
+$('#file-line').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  let text = await f.text();
+  if ($('#line-clean').checked) {
+    text = text.split(/\r?\n/).map((l) => l.replace(/^\d{1,2}:\d{2}\t[^\t]*\t/, '')).join('\n');
+  }
+  await Store.save('notes', { title: f.name.replace(/\.(txt|md)$/i, ''), tags: 'LINE匯入', body: text });
+  e.target.value = '';
+  toast('已匯入為筆記');
+});
+
+/* ---------- 備份 ---------- */
+$('#btn-export').addEventListener('click', async () => {
+  const blob = new Blob([JSON.stringify(await Store.exportAll(), null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `ziwei-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('備份已下載（不含 PDF 檔案）');
+});
+$('#file-import').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    const n = await Store.importAll(JSON.parse(await f.text()));
+    toast(`已匯入 ${n} 筆`);
+    showTab(location.hash.slice(1) || 'chart');
+  } catch (err) { toast(err.message); }
+  e.target.value = '';
+});
+
+/* ---------- 快速筆記（上課用） ---------- */
+const dlgQuick = $('#dlg-quick');
+const quickForm = $('#quick-form');
+const pad = (n) => String(n).padStart(2, '0');
+const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* 無痕模式等情況略過 */ } };
+
+async function openQuick() {
+  const recent = lsGet('zw-chapters', []);
+  quickForm.chapter.value = (await Store.get('meta', 'progress').catch(() => null))?.chapter || recent[0] || '';
+  quickForm.text.value = lsGet('zw-draft', '');
+  $('#chapter-options').innerHTML = recent.map((c) => `<option value="${esc(c)}">`).join('');
+  dlgQuick.returnValue = '';
+  dlgQuick.showModal();
+  quickForm.text.focus();
+}
+dlgQuick.addEventListener('input', () => lsSet('zw-draft', quickForm.text.value)); // 草稿自動保留，不怕誤關
+dlgQuick.addEventListener('close', async () => {
+  if (dlgQuick.returnValue !== 'ok') return;
+  const text = quickForm.text.value.trim();
+  const chapter = quickForm.chapter.value.trim() || '未分類';
+  if (!text) return;
+  const now = new Date();
+  const day = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const title = `${chapter}｜${day}`;
+  const line = `[${pad(now.getHours())}:${pad(now.getMinutes())}] ${text}`;
+  try {
+    const exist = (await Store.list('notes')).find((n) => n.title === title);
+    await Store.save('notes', exist
+      ? { ...exist, body: exist.body + '\n\n' + line }
+      : { title, tags: `上課, ${chapter}`, body: line });
+    await Store.save('meta', { id: 'progress', chapter });
+    lsSet('zw-chapters', [chapter, ...lsGet('zw-chapters', []).filter((c) => c !== chapter)].slice(0, 20));
+    lsSet('zw-draft', '');
+    toast('已記下');
+    if (!$('#tab-notes').hidden) renderNotes();
+  } catch (err) { toast('儲存失敗，草稿仍保留：' + err.message); }
+});
+$('#fab').addEventListener('click', openQuick);
+$('#nav-note').addEventListener('click', openQuick);
+
+/* ---------- 登入／啟動 ---------- */
+window.addEventListener('unhandledrejection', (e) => toast(e.reason?.message || '發生錯誤'));
+const loginEl = $('#login');
+function showLogin(msg) {
+  $('main').hidden = true; $('#fab').hidden = true; $('#tabs').hidden = true; $('.menu').hidden = true;
+  loginEl.hidden = false;
+  $('#login-msg').textContent = msg || '';
+}
+function startApp() {
+  loginEl.hidden = true;
+  $('main').hidden = false; $('#fab').hidden = false; $('#tabs').hidden = false; $('.menu').hidden = false;
+  const h = location.hash.slice(1);
+  showTab(['chart', 'cases', 'notes', 'terms', 'docs'].includes(h) ? h : 'chart');
+}
+$('#login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  $('#login-msg').textContent = '登入中…';
+  try { await Store.signIn(f.email.value.trim(), f.password.value); f.password.value = ''; startApp(); }
+  catch (err) { $('#login-msg').textContent = err.message; }
+});
+$('#btn-logout').addEventListener('click', async () => { await Store.signOut(); cur.chart = null; location.hash = ''; location.reload(); });
+
+(async () => {
+  try {
+    if (await Store.session()) startApp(); else showLogin();
+    Store.onAuth((s) => { if (!s) showLogin(); });
+  } catch (err) { showLogin(err.message); }
+})();
+
