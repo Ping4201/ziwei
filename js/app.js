@@ -165,8 +165,32 @@ function renderChart() {
     ${laySum}
   </div>`;
   $('#chart-grid').innerHTML = cells.join('') + center;
+  renderPatterns(L);
   renderPanel();
 }
+
+/** 自動偵測格局：本命一定列出；開了大限／流年時，會再加上疊化忌才成立的夾忌類格局 */
+let patList = [];
+function renderPatterns(L) {
+  const box = $('#pattern-box');
+  patList = Patterns.detect(cur.chart, L && { da: view.da ? L.da : null, nian: view.nian ? L.nian : null });
+  if (!patList.length) { box.innerHTML = '<b>格局</b>　<span class="muted">這張盤沒有偵測到課程 Ch 11-3 的常用格局。</span>'; box.hidden = false; return; }
+  const item = (x, i) => `<div class="pat" data-i="${i}">
+    <b>${esc(x.name)}</b>${x.layer !== '本命' ? `<span class="tag lay-${x.layer === '大限' ? 'da' : 'nian'}">${x.layer}</span>` : ''}
+    <span class="muted">${esc(cur.chart.palaces[x.idx].name)}（${cur.chart.palaces[x.idx].branch}）</span>
+    <div class="s">${esc(x.brief)}${x.note ? `　<span class="muted">${esc(x.note)}</span>` : ''}</div></div>`;
+  box.hidden = false;
+  box.innerHTML = `<details open><summary><b>偵測到的格局（${patList.length}）</b>　<span class="muted">點一下看該宮與速查說明</span></summary>${patList.map(item).join('')}
+    <p class="muted">依課程 Ch 11-3 條件自動判斷，只當提醒，要搭配三方四正與影片的完整判斷。</p></details>`;
+}
+$('#pattern-box').addEventListener('click', (e) => {
+  const el = e.target.closest('.pat');
+  if (!el) return;
+  const x = patList[Number(el.dataset.i)];
+  cur.sel = x.idx;
+  renderChart();
+  showStarInfo(x.term, x.idx);
+});
 
 function setView(patch) {
   Object.assign(view, patch);
@@ -245,6 +269,7 @@ async function renderPanel() {
       <li>本宮　${esc(sfText(c, b))}</li><li>對宮　${esc(sfText(c, opp))}</li>
       <li>三合　${esc(sfText(c, tri[0]))}</li><li>三合　${esc(sfText(c, tri[1]))}</li>
       <li class="muted">暗合　${esc(sfText(c, an))}</li></ul></div>
+    ${patList.filter((x) => x.idx === b).length ? `<div class="pp-note">此宮格局：${patList.filter((x) => x.idx === b).map((x) => esc(x.name) + (x.layer !== '本命' ? `（${x.layer}）` : '')).join('、')}</div>` : ''}
     ${xiang.length ? `<div class="pp-note">${xiang.map(esc).join('<br>')}</div>` : ''}
     <div class="pp-stars">${notes.length ? notes.map(([k, v]) => `<div class="pp-line"><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join('') : '<p class="muted">這宮沒有對應的速查說明。</p>'}</div>
     ${p.note ? `<div class="pp-line"><b>備註</b><span>${esc(p.note)}</span></div>` : ''}`;
