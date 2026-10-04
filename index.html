@@ -35,6 +35,8 @@
   </details>
 </header>
 
+<div id="banner" class="banner" hidden><span id="banner-text"></span> 建議下載一份備份檔。<button id="banner-go" class="ghost">立即備份</button><button id="banner-x" class="ghost">稍後</button></div>
+
 <!-- 登入畫面：沒登入就看不到任何內容 -->
 <div id="login" hidden>
   <form id="login-form" class="card">
@@ -67,14 +69,43 @@
           <option value="next">全算下月</option>
         </select>
       </label>
+      <details class="full-row" id="solar-box">
+        <summary>要換算真太陽時？（選填：出生時間與地點）</summary>
+        <div class="form-grid">
+          <label>出生時間<input name="time" type="time"></label>
+          <label>出生地<select name="place"></select></label>
+          <div id="place-other" class="form-grid full-row" hidden>
+            <label>經度（東經為正，西經為負）<input name="lon" type="number" step="0.01" placeholder="例：-118.24"></label>
+            <label>時區（UTC＋）
+              <select name="tz"><option value="8" selected>+8 台灣、中國、新加坡</option><option value="9">+9 日本、韓國</option><option value="7">+7</option><option value="5.5">+5.5 印度</option><option value="0">0 英國</option><option value="1">+1 歐洲中部</option><option value="2">+2</option><option value="10">+10 澳洲東岸</option><option value="12">+12 紐西蘭</option><option value="-5">-5 美東</option><option value="-6">-6 美中</option><option value="-7">-7 美山區</option><option value="-8">-8 美西</option></select>
+            </label>
+          </div>
+          <label class="check full-row"><input type="checkbox" name="dst"> 出生當時是日光節約（夏令）時間，要減 1 小時</label>
+        </div>
+        <p class="hint">有填「出生時間」，就依它決定時辰（上面的時辰選單可不管）。選了出生地，會依經度與季節換算真太陽時，與課程用文墨天機「調經度」的做法一致。</p>
+      </details>
       <div class="actions"><button type="submit" class="primary">排盤</button></div>
     </form>
 
     <div id="chart-wrap" hidden>
       <div class="card summary" id="chart-summary"></div>
+      <div class="layer-bar">
+        <label class="check"><input type="checkbox" id="lay-da"> 大限</label>
+        <label class="check"><input type="checkbox" id="lay-nian"> 流年</label>
+        <button type="button" class="ghost" id="lay-prev" aria-label="前一年">‹</button>
+        <select id="lay-year"></select>
+        <button type="button" class="ghost" id="lay-next" aria-label="後一年">›</button>
+      </div>
       <div class="chart-grid" id="chart-grid"></div>
-      <p class="hint">點宮位可修改星曜與備註；點星名可看速查說明。</p>
+      <p class="hint">點宮位：高亮三方四正並顯示該宮說明；點星名：看這顆星在這個宮的意思。綠＝大限、藍＝流年。</p>
+      <div class="card" id="palace-panel" hidden></div>
       <div class="card" id="star-info" hidden></div>
+      <details class="card" id="fix-box">
+        <summary><b>定盤：比較相鄰時辰</b>（不確定出生時辰時用）</summary>
+        <p class="hint">並排看前後各兩個時辰的命宮、身宮、五行局與重點宮位，對照你的經歷，挑最像的一張。</p>
+        <button type="button" id="btn-fix" class="primary">並排比較</button>
+        <div id="fix-result"></div>
+      </details>
       <details class="card" id="cmp-box">
         <summary><b>比對文墨天機盤</b>（貼上星曜，找出排錯的地方）</summary>
         <p class="hint">在文墨天機看盤，照著每個宮位把星曜打（或複製）進來，一宮一行，開頭寫地支或宮名都可以。四化寫「太陽化忌」或「太陽忌」。沒有的星（如天空、截空）會自動略過。</p>
@@ -85,13 +116,26 @@
       <div class="card case-box">
         <h2>案例紀錄</h2>
         <div class="form-grid">
-          <label>驗證結果
+          <label>整體驗證結果
             <select id="case-verdict">
               <option>未驗證</option><option>很準</option><option>部分準</option><option>不準</option>
             </select>
           </label>
+          <label class="check"><input type="checkbox" id="case-hide"> 案例列表隱藏生日（幫別人看盤時用）</label>
         </div>
-        <label class="block">事件／驗證紀錄
+        <label class="block">我的推論（先寫下你看盤的判斷，之後才能驗證準不準）
+          <textarea id="case-hypo" rows="4" placeholder="例：官祿太陽化忌，工作上容易與男性主管起衝突；35 歲後換跑道…"></textarea>
+        </label>
+        <h2 class="mt">事件時間軸</h2>
+        <div class="ev-add">
+          <select id="ev-year"></select>
+          <select id="ev-verdict"><option>未驗證</option><option>準</option><option>部分準</option><option>不準</option></select>
+          <input id="ev-text" placeholder="那年發生了什麼事？" autocomplete="off">
+          <button type="button" id="btn-ev-add" class="primary">加入</button>
+        </div>
+        <div id="ev-stat" class="muted"></div>
+        <div id="ev-list"></div>
+        <label class="block mt">事件／驗證紀錄（自由記錄）
           <textarea id="case-note" rows="5" placeholder="實際發生了什麼？與盤的推論吻合嗎？"></textarea>
         </label>
         <div class="actions">
@@ -124,6 +168,7 @@
         <label class="block">內容<textarea name="body" rows="14"></textarea></label>
         <div class="actions">
           <button type="submit" class="primary">儲存</button>
+          <button type="button" id="btn-note-to-term" class="ghost">加到速查…</button>
           <button type="button" id="btn-del-note" class="danger">刪除</button>
         </div>
       </form>
@@ -134,10 +179,12 @@
   <section id="tab-terms" class="panel" hidden>
     <div class="toolbar">
       <input id="term-search" type="search" placeholder="搜尋星曜、術語…">
+      <button id="btn-quiz" class="ghost">複習卡</button>
       <button id="btn-new-term" class="primary">新增術語</button>
     </div>
     <div id="term-cats" class="chips"></div>
     <div id="term-list" class="cards"></div>
+    <div id="term-extra"></div>
   </section>
 
   <!-- 匯入 -->
@@ -181,6 +228,7 @@
       <select name="chapterSel"></select>
     </label>
     <input name="chapter" class="block" placeholder="自行輸入章節或主題" autocomplete="off" hidden>
+    <div id="quick-hint"></div>
     <label class="block">筆記
       <textarea name="text" rows="6" placeholder="上課重點、老師說的口訣、想驗證的事…"></textarea>
     </label>
@@ -222,11 +270,23 @@
     </label>
     <label class="block">一句話重點<input name="brief"></label>
     <label class="block">詳細說明<textarea name="body" rows="5"></textarea></label>
+    <label class="check block"><input type="checkbox" name="doubt"> 存疑（辨識或理解可能有誤，之後要再確認）</label>
     <div class="actions">
       <button value="ok" class="primary">儲存</button>
       <button value="cancel" class="ghost" formnovalidate>取消</button>
     </div>
   </form>
+</dialog>
+
+<dialog id="dlg-quiz">
+  <h3>複習卡</h3>
+  <p id="quiz-q" class="quiz-q"></p>
+  <p id="quiz-a" class="quiz-a" hidden></p>
+  <div class="actions">
+    <button type="button" id="quiz-show" class="primary">顯示答案</button>
+    <button type="button" id="quiz-next" class="ghost">下一題</button>
+    <button type="button" id="quiz-close" class="ghost">結束</button>
+  </div>
 </dialog>
 
 <div id="toast" role="status"></div>
@@ -235,6 +295,8 @@
 <script src="js/config.js"></script>
 <script src="js/chart.js"></script>
 <script src="js/compare.js"></script>
+<script src="js/solar.js"></script>
+<script src="js/layers.js"></script>
 <script src="js/data.js"></script>
 <script src="js/storage.js"></script>
 <script src="js/app.js"></script>

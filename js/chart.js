@@ -43,7 +43,8 @@
    */
   function buildChart(input) {
     // 晚子時（23:00–24:00）視為次日，與課程設定一致
-    const lunar = solarToLunar(input.y, input.m, input.d + (input.lateZi ? 1 : 0));
+    // 可直接指定農曆（測試或國曆無法轉換時使用），否則由國曆轉換
+    const lunar = input.lunar || solarToLunar(input.y, input.m, input.d + (input.lateZi ? 1 : 0));
     let month = lunar.month;
     if (lunar.leap) {
       const rule = input.leapRule || 'mid';
@@ -149,6 +150,7 @@
       yearGanzhi: yStemName + BRANCHES[yBranch],
       juName,
       ju,
+      leapRule: input.leapRule || 'mid',
       mingZhu: ['貪狼', '巨門', '祿存', '文曲', '廉貞', '武曲', '破軍', '武曲', '廉貞', '文曲', '祿存', '巨門'][ming],
       shenZhu: ['火星', '天相', '天梁', '天同', '文昌', '天機', '火星', '天相', '天梁', '天同', '文昌', '天機'][yBranch],
       sihua: sihua.map((n, i) => n + '化' + HUA[i]),
