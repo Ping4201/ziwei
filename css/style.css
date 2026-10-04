@@ -225,3 +225,11 @@ table.fix .now { background: color-mix(in srgb, var(--accent) 14%, var(--card));
   .pp-line b { flex-basis: 3.8em; }
   .layer-bar select { max-width: 44vw; }
 }
+
+/* 格局偵測 */
+#pattern-box summary { cursor: pointer; }
+#pattern-box .pat { padding: 8px 0; border-top: 1px solid var(--line); cursor: pointer; }
+#pattern-box .pat:first-of-type { margin-top: 8px; }
+#pattern-box .pat .s { font-size: 14px; }
+.tag.lay-da { background: color-mix(in srgb, #15803d 16%, transparent); color: #15803d; }
+.tag.lay-nian { background: color-mix(in srgb, #1d4ed8 16%, transparent); color: #1d4ed8; }
