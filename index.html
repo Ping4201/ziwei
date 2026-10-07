@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>紫微實戰與學習筆記</title>
-<meta name="theme-color" content="#4f46e5">
+<meta name="theme-color" content="#fef200">
 <meta name="robots" content="noindex, nofollow">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="紫微筆記">
@@ -15,7 +15,7 @@
 </head>
 <body>
 <header class="top">
-  <h1>紫微實戰與學習筆記</h1>
+  <h1><img class="logo" src="images/favicon.png" alt="">紫微實戰與學習筆記</h1>
   <nav id="tabs" aria-label="主選單">
     <button data-tab="chart" class="on">排盤</button>
     <button data-tab="cases">案例</button>
@@ -40,6 +40,7 @@
 <!-- 登入畫面：沒登入就看不到任何內容 -->
 <div id="login" hidden>
   <form id="login-form" class="card">
+    <img class="logo" src="images/icon-192.png" alt="">
     <h2>紫微實戰與學習筆記</h2>
     <p class="muted">僅限本人使用，請登入。</p>
     <label class="block">Email<input name="email" type="email" autocomplete="username" required></label>
@@ -49,6 +50,7 @@
 </div>
 
 <button id="fab" aria-label="快速記一筆" hidden>＋</button>
+<button id="to-top" aria-label="回到頁面頂端" title="回到頁面頂端" type="button">↑<span>頂端</span></button>
 
 <main hidden>
   <!-- 排盤 -->
@@ -59,7 +61,8 @@
         <select name="gender"><option value="M">男</option><option value="F">女</option></select>
       </label>
       <label>國曆生日<input name="date" type="date" required></label>
-      <label>出生時辰
+      <label>出生時間（時：分）<input name="time" type="time" step="60"></label>
+      <label>出生時辰（沒有分鐘時才選）
         <select name="hour"></select>
       </label>
       <label>閏月規則
@@ -70,9 +73,8 @@
         </select>
       </label>
       <details class="full-row" id="solar-box">
-        <summary>要換算真太陽時？（選填：出生時間與地點）</summary>
+        <summary>要換算真太陽時？（選填：出生地）</summary>
         <div class="form-grid">
-          <label>出生時間<input name="time" type="time"></label>
           <label>出生地<select name="place"></select></label>
           <div id="place-other" class="form-grid full-row" hidden>
             <label>經度（東經為正，西經為負）<input name="lon" type="number" step="0.01" placeholder="例：-118.24"></label>
@@ -82,8 +84,9 @@
           </div>
           <label class="check full-row"><input type="checkbox" name="dst"> 出生當時是日光節約（夏令）時間，要減 1 小時</label>
         </div>
-        <p class="hint">有填「出生時間」，就依它決定時辰（上面的時辰選單可不管）。選了出生地，會依經度與季節換算真太陽時，與課程用文墨天機「調經度」的做法一致。</p>
+        <p class="hint">選了出生地，會依經度與季節換算真太陽時，與課程用文墨天機「調經度」的做法一致。需要先填上面的「出生時間（時：分）」。</p>
       </details>
+      <p id="time-hint" class="hint full-row" hidden></p>
       <div class="actions"><button type="submit" class="primary">排盤</button></div>
     </form>
 

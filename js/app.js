@@ -46,8 +46,28 @@ form.hour.innerHTML = HOURS.map((h, i) => `<option value="${i}">${h}</option>`).
 form.place.innerHTML = '<option value="">不換算（直接用時間）</option>' +
   Solar.CITIES.map(([n, l]) => `<option value="${l}">${n}（東經 ${l}°）</option>`).join('') +
   '<option value="other">其他地點（手動輸入）</option>';
-const syncPlaceFields = () => { $('#place-other').hidden = form.place.value !== 'other'; };
-form.place.addEventListener('change', syncPlaceFields);
+/** 有填「出生時間（時：分）」就由它決定時辰，時辰選單改成唯讀顯示結果；並即時顯示換算後的真太陽時 */
+function syncBirthFields() {
+  $('#place-other').hidden = form.place.value !== 'other';
+  const hint = $('#time-hint');
+  const has = !!form.time.value;
+  form.hour.disabled = has;
+  if (!has) { hint.hidden = true; return; }
+  try {
+    const r = resolveBirth();
+    form.hour.value = r.lateZi ? 12 : r.hourBranch === 0 ? 0 : r.hourBranch;
+    const b = r.birth;
+    hint.hidden = false;
+    hint.textContent = `${b.place || b.dst ? '真太陽時 ' : '時間 '}${b.trueSolar.split(' ')[1]}（${HOURS[r.lateZi ? 12 : r.hourBranch].split(' ')[0]}時）` +
+      (b.place ? `，比鐘錶${b.delta >= 0 ? '快' : '慢'} ${Math.abs(b.delta)} 分` : '');
+  } catch (err) {
+    hint.hidden = false;
+    hint.textContent = err.message;
+  }
+}
+['change', 'input'].forEach((ev) => { form.time.addEventListener(ev, syncBirthFields); form.date.addEventListener(ev, syncBirthFields); });
+['change', 'input'].forEach((ev) => { form.place.addEventListener(ev, syncBirthFields); form.lon.addEventListener(ev, syncBirthFields); form.tz.addEventListener(ev, syncBirthFields); });
+form.dst.addEventListener('change', syncBirthFields);
 
 /** 讀表單，回傳排盤參數。有填「出生時間」就依時間（可換算真太陽時）決定時辰，否則用時辰下拉選單。 */
 function resolveBirth() {
@@ -123,7 +143,8 @@ function renderChart() {
     `<span><b>${esc(c.name || '（未命名）')}</b> ${c.gender === 'M' ? '男' : '女'}</span>` +
     `<span>國曆 ${c.solar.y}-${c.solar.m}-${c.solar.d} ${hourLabel(c.solar)}時${c.solar.late ? '（視為次日）' : ''}</span>` +
     `<span>農曆 ${lunarText}</span><span>${c.yearGanzhi}年</span>` +
-    (bi ? `<span class="muted">鐘錶 ${esc(bi.clock)} → 真太陽時 ${esc(bi.trueSolar.split(' ')[1])}${bi.place ? '（' + esc(bi.place) + '，' + (bi.delta >= 0 ? '+' : '') + bi.delta + ' 分）' : ''}${bi.dst ? '，已減日光節約 1 小時' : ''}</span>` : '');
+    (bi && !bi.place && !bi.dst ? `<span class="muted">出生時間 ${esc(bi.clock.split(' ')[1])}</span>` : '') +
+    (bi && (bi.place || bi.dst) ? `<span class="muted">鐘錶 ${esc(bi.clock)} → 真太陽時 ${esc(bi.trueSolar.split(' ')[1])}${bi.place ? '（' + esc(bi.place) + '，' + (bi.delta >= 0 ? '+' : '') + bi.delta + ' 分）' : ''}${bi.dst ? '，已減日光節約 1 小時' : ''}</span>` : '');
 
   // 圖層控制
   $('#lay-da').checked = !!view.da;
@@ -431,7 +452,7 @@ $('#fix-result').addEventListener('click', (e) => {
   o.chart.birth = null;
   cur.chart = o.chart; cur.sel = null;
   form.date.value = `${o.y}-${pad(o.m)}-${pad(o.d)}`;
-  form.time.value = ''; form.hour.value = o.b;
+  form.time.value = ''; form.hour.value = o.b; syncBirthFields();
   renderChart();
   $('#fix-result').innerHTML = '';
   toast('已改用新時辰');
@@ -514,6 +535,17 @@ function openCase(c) {
   form.name.value = c.chart.name; form.gender.value = c.chart.gender;
   form.date.value = `${c.chart.solar.y}-${pad(c.chart.solar.m)}-${pad(c.chart.solar.d)}`;
   form.hour.value = hourOption(c.chart.solar); form.time.value = '';
+  form.place.value = ''; form.dst.checked = false;
+  const bi = c.chart.birth;
+  if (bi) { // 還原當初輸入的鐘錶日期、時間（含分鐘）與出生地
+    const [d, t] = bi.clock.split(' ');
+    form.date.value = d.split('-').map((n, i) => (i ? pad(n) : n)).join('-');
+    form.time.value = t;
+    form.dst.checked = !!bi.dst;
+    if (bi.place.startsWith('經度')) { form.place.value = 'other'; form.lon.value = parseFloat(bi.place.slice(2)); }
+    else { const o = [...form.place.options].find((x) => bi.place && x.textContent.startsWith(bi.place)); if (o) form.place.value = o.value; }
+  }
+  syncBirthFields();
   $('#case-verdict').value = c.verdict; $('#case-note').value = c.note || '';
   $('#case-hypo').value = c.hypo || ''; $('#case-hide').checked = !!c.hideBirth;
   $('#case-status').textContent = ''; $('#fix-result').innerHTML = '';
@@ -923,6 +955,19 @@ passwordForm.addEventListener('submit', async (e) => {
   } catch (err) { msg.textContent = err.message; }
 });
 $('#btn-logout').addEventListener('click', async () => { await Store.signOut(); cur.chart = null; location.hash = ''; location.reload(); });
+
+/* ---------- 回到頁面頂端 ---------- */
+const toTop = $('#to-top');
+const syncToTop = () => toTop.classList.toggle('show', window.scrollY > 400 && !$('main').hidden);
+window.addEventListener('scroll', syncToTop, { passive: true });
+toTop.addEventListener('click', () => {
+  const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  window.scrollTo({ top: 0, behavior: calm ? 'auto' : 'smooth' });
+  // 有些瀏覽器的平滑捲動會中途停住，保險起見 0.8 秒後還沒到頂就直接跳上去
+  setTimeout(() => { if (window.scrollY > 0) window.scrollTo(0, 0); }, 800);
+});
+// 切換分頁後回到頂端，避免停在上一頁捲到一半的位置
+$('#tabs').addEventListener('click', (e) => { if (e.target.dataset.tab) window.scrollTo(0, 0); });
 
 (async () => {
   try {
